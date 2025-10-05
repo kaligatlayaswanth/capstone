@@ -5,3 +5,20 @@ torchvision
 pillow
 requests
 picamera2 ; sys_platform == 'linux'
+
+
+python3.9 -m venv /media/pi/USB/venv39
+export TMPDIR=/media/pi/USB/tmp
+
+
+mkdir -p /media/pi/USB/tmp /media/pi/USB/pip-cache
+
+
+
+
+python3.9 -m venv /home/pi/venv39
+source /home/pi/venv39/bin/activate
+
+
+
+source /media/pi/daff36bb-2b66-44e9-be13-389d9285bd5e/venv39/bin/activate

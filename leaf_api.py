@@ -1,15 +1,177 @@
 # # backend/leaf_api.py
 
+import io
+import torch
+from torchvision import models, transforms
+from fastapi import FastAPI, File, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
+from PIL import Image
+import requests
+
+# --- Initialize FastAPI ---
+app = FastAPI(title="Leaf Disease Detection API")
+
+# --- Enable CORS ---
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Replace "*" with your LAN IP or Expo URL in production
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# --- Device configuration ---
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+# --- Classes ---
+classes = [
+    'Apple___Apple_scab', 'Apple___Black_rot', 'Apple___Cedar_apple_rust', 'Apple___healthy',
+    'Blueberry___healthy', 'Cherry_(including_sour)___Powdery_mildew', 'Cherry_(including_sour)___healthy',
+    'Corn_(maize)___Cercospora_leaf_spot Gray_leaf_spot', 'Corn_(maize)___Common_rust_',
+    'Corn_(maize)___Northern_Leaf_Blight', 'Corn_(maize)___healthy', 'Grape___Black_rot',
+    'Grape___Esca_(Black_Measles)', 'Grape___Leaf_blight_(Isariopsis_Leaf_Spot)', 'Grape___healthy',
+    'Orange___Haunglongbing_(Citrus_greening)', 'Peach___Bacterial_spot', 'Peach___healthy',
+    'Pepper,_bell___Bacterial_spot', 'Pepper,_bell___healthy', 'Potato___Early_blight',
+    'Potato___Late_blight', 'Potato___healthy', 'Raspberry___healthy', 'Soybean___healthy',
+    'Squash___Powdery_mildew', 'Strawberry___Leaf_scorch', 'Strawberry___healthy',
+    'Tomato___Bacterial_spot', 'Tomato___Early_blight', 'Tomato___Late_blight', 'Tomato___Leaf_Mold',
+    'Tomato___Septoria_leaf_spot', 'Tomato___Spider_mites Two-spotted_spider_mite', 'Tomato___Target_Spot',
+    'Tomato___Tomato_Yellow_Leaf_Curl_Virus', 'Tomato___Tomato_mosaic_virus', 'Tomato___healthy'
+]
+
+# --- Load model ---
+model = models.mobilenet_v2(num_classes=len(classes))
+import os
+model_path = os.path.join(os.path.dirname(__file__), "saved_models", "leaf_mobilenet.pth")
+model.load_state_dict(torch.load(model_path, map_location=device))
+model.to(device)
+model.eval()
+
+# --- Preprocessing ---
+transform = transforms.Compose([
+    transforms.Resize((224, 224)),
+    transforms.ToTensor(),
+    transforms.Normalize([0.485, 0.456, 0.406],
+                         [0.229, 0.224, 0.225])
+])
+
+# --- Prediction function ---
+def predict_image(image_bytes):
+    try:
+        image = Image.open(io.BytesIO(image_bytes))
+        if image.mode != "RGB":
+            image = image.convert("RGB")
+    except Exception as e:
+        raise ValueError(f"Invalid image file: {e}")
+
+    tensor = transform(image).unsqueeze(0).to(device)
+    print("Tensor shape:", tensor.shape)  # DEBUG: check shape
+    with torch.no_grad():
+        outputs = model(tensor)
+        _, predicted = torch.max(outputs, 1)
+    return classes[predicted.item()]
+
+# --- Gemini API ---
+
+# --- OpenRouter API ---
+OPENROUTER_API_KEY = "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"  # <-- Replace with your actual OpenRouter API key
+OPENROUTER_MODEL = "x-ai/grok-4-fast:free"  # You can change to another supported model if desired
+
+
+def get_openrouter_insights(disease_name: str) -> str:
+    url = "https://openrouter.ai/api/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    prompt = (
+        f"You are a plant disease expert.\n"
+        f"For the disease: {disease_name}, provide ONLY the most useful and actionable treatment and care tips. "
+        f"Format the answer with clear section headings (like 'Symptoms', 'Treatment', 'Prevention'), and under each heading, give concise bullet points. "
+        f"Do NOT include any unnecessary information, introductions, or disclaimers. Only show practical, actionable insights."
+    )
+    payload = {
+        "model": OPENROUTER_MODEL,
+        "messages": [
+            {"role": "system", "content": "You are a plant disease expert."},
+            {"role": "user", "content": prompt}
+        ]
+    }
+    try:
+        response = requests.post(url, headers=headers, json=payload, timeout=15)
+        response.raise_for_status()
+        data = response.json()
+        text = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+        # Optional: Post-process to keep only headings and bullet points
+        import re
+        useful_lines = []
+        for line in text.splitlines():
+            if re.match(r"^\s*([A-Z][A-Za-z ]+:|[-•*])", line):
+                useful_lines.append(line.strip())
+        formatted = "\n".join(useful_lines)
+        return formatted or "No insights generated."
+    except requests.exceptions.RequestException as e:
+        return f"OpenRouter API request failed: {e}"
+
+# --- API routes ---
+@app.post("/predict/")
+async def predict(file: UploadFile = File(...)):
+    try:
+        contents = await file.read()
+        disease = predict_image(contents)
+        insights = get_openrouter_insights(disease)
+        return {"disease": disease, "insights": insights}
+    except Exception as e:
+        return {"error": str(e)}
+
+@app.get("/")
+def root():
+    return {"message": "Leaf Disease Detection API is running!"}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 # import io
 # import torch
-# import torch.nn as nn
 # from torchvision import models, transforms
-# from fastapi import FastAPI, File, UploadFile, HTTPException
+# from fastapi import FastAPI, File, UploadFile
+# from fastapi.middleware.cors import CORSMiddleware
 # from PIL import Image
 # import requests
 
 # # --- Initialize FastAPI ---
 # app = FastAPI(title="Leaf Disease Detection API")
+
+# # --- Enable CORS ---
+# # For development, allow all origins (your React Native app)
+# app.add_middleware(
+#     CORSMiddleware,
+#     allow_origins=["*"],  # replace "*" with your LAN IP / Expo URL in production
+#     allow_credentials=True,
+#     allow_methods=["*"],
+#     allow_headers=["*"],
+# )
 
 # # --- Device configuration ---
 # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -46,15 +208,25 @@
 
 # # --- Prediction function ---
 # def predict_image(image_bytes):
-#     image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-#     image = transform(image).unsqueeze(0).to(device)  # Add batch dimension
+#     # Ensure proper image decoding
+#     try:
+#         image = Image.open(io.BytesIO(image_bytes))
+#         if image.mode != "RGB":
+#             image = image.convert("RGB")
+#     except Exception as e:
+#         raise ValueError(f"Invalid image file: {e}")
+
+#     # Resize and normalize
+#     image = transform(image).unsqueeze(0).to(device)
+    
+#     # Model prediction
 #     with torch.no_grad():
 #         outputs = model(image)
 #         _, predicted = torch.max(outputs, 1)
 #     return classes[predicted.item()]
 
 # # --- Gemini API call ---
-# GEMINI_API_KEY = "AIzaSyDGVCQeKgReVYRuuY28eX-JfFuIlkdpzKk"  # Replace with your free API key
+# GEMINI_API_KEY = "AIzaSyDGVCQeKgReVYRuuY28eX-JfFuIlkdpzKk"  # Replace with your actual key
 
 # def get_gemini_insights(disease_name: str) -> str:
 #     url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
@@ -73,33 +245,42 @@
 #     }
 
 #     try:
-#         response = requests.post(url, headers=headers, json=payload)
+#         response = requests.post(url, headers=headers, json=payload, timeout=10)
 #         response.raise_for_status()
 #         data = response.json()
+#         insights_text = data.get('candidates', [{}])[0].get('content', [{}])[0].get('parts', [{}])[0].get('text', "")
+#         return insights_text or "No insights generated from Gemini API."
 #     except requests.exceptions.RequestException as e:
 #         return f"Gemini API request failed: {e}"
 
-#     # Correct path to extract the text
-#     try:
-#         insights_text = data['candidates'][0]['content']['parts'][0]['text']
-#         return insights_text
-#     except (KeyError, IndexError):
-#         return "No insights generated from Gemini API."
-
-
-
-# # --- API route ---
+# # --- Predict route ---
 # @app.post("/predict/")
 # async def predict(file: UploadFile = File(...)):
-#     contents = await file.read()
-#     disease = predict_image(contents)
-#     insights = get_gemini_insights(disease)
-#     return {"disease": disease, "insights": insights}
+#     try:
+#         contents = await file.read()
+#         disease = predict_image(contents)
+#         insights = get_gemini_insights(disease)
+#         return {"disease": disease, "insights": insights}
+#     except Exception as e:
+#         return {"error": str(e)}
 
 # # --- Root route ---
 # @app.get("/")
 # def root():
 #     return {"message": "Leaf Disease Detection API is running with Gemini AI!"}
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -261,133 +442,133 @@
 
 
 
-# backend/leaf_api.py
+# # backend/leaf_api.py
 
-import io
-import os
-import torch
-import torch.nn as nn
-from torchvision import models, transforms
-from fastapi import FastAPI, File, UploadFile
-from fastapi.responses import FileResponse
-from PIL import Image
-import requests
+# import io
+# import os
+# import torch
+# import torch.nn as nn
+# from torchvision import models, transforms
+# from fastapi import FastAPI, File, UploadFile
+# from fastapi.responses import FileResponse
+# from PIL import Image
+# import requests
 
-# --- Raspberry Pi Camera ---
-from picamera2 import Picamera2
+# # --- Raspberry Pi Camera ---
+# from picamera2 import Picamera2
 
-picam = Picamera2()
-picam.configure(picam.create_still_configuration())
+# picam = Picamera2()
+# picam.configure(picam.create_still_configuration())
 
-# --- Initialize FastAPI ---
-app = FastAPI(title="Leaf Disease Detection API")
+# # --- Initialize FastAPI ---
+# app = FastAPI(title="Leaf Disease Detection API")
 
-# --- Device configuration ---
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+# # --- Device configuration ---
+# device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-# --- Classes (same as training) ---
-classes = [
-    'Apple___Apple_scab', 'Apple___Black_rot', 'Apple___Cedar_apple_rust', 'Apple___healthy',
-    'Blueberry___healthy', 'Cherry_(including_sour)___Powdery_mildew', 'Cherry_(including_sour)___healthy',
-    'Corn_(maize)___Cercospora_leaf_spot Gray_leaf_spot', 'Corn_(maize)___Common_rust_',
-    'Corn_(maize)___Northern_Leaf_Blight', 'Corn_(maize)___healthy', 'Grape___Black_rot',
-    'Grape___Esca_(Black_Measles)', 'Grape___Leaf_blight_(Isariopsis_Leaf_Spot)', 'Grape___healthy',
-    'Orange___Haunglongbing_(Citrus_greening)', 'Peach___Bacterial_spot', 'Peach___healthy',
-    'Pepper,_bell___Bacterial_spot', 'Pepper,_bell___healthy', 'Potato___Early_blight',
-    'Potato___Late_blight', 'Potato___healthy', 'Raspberry___healthy', 'Soybean___healthy',
-    'Squash___Powdery_mildew', 'Strawberry___Leaf_scorch', 'Strawberry___healthy',
-    'Tomato___Bacterial_spot', 'Tomato___Early_blight', 'Tomato___Late_blight', 'Tomato___Leaf_Mold',
-    'Tomato___Septoria_leaf_spot', 'Tomato___Spider_mites Two-spotted_spider_mite', 'Tomato___Target_Spot',
-    'Tomato___Tomato_Yellow_Leaf_Curl_Virus', 'Tomato___Tomato_mosaic_virus', 'Tomato___healthy'
-]
+# # --- Classes (same as training) ---
+# classes = [
+#     'Apple___Apple_scab', 'Apple___Black_rot', 'Apple___Cedar_apple_rust', 'Apple___healthy',
+#     'Blueberry___healthy', 'Cherry_(including_sour)___Powdery_mildew', 'Cherry_(including_sour)___healthy',
+#     'Corn_(maize)___Cercospora_leaf_spot Gray_leaf_spot', 'Corn_(maize)___Common_rust_',
+#     'Corn_(maize)___Northern_Leaf_Blight', 'Corn_(maize)___healthy', 'Grape___Black_rot',
+#     'Grape___Esca_(Black_Measles)', 'Grape___Leaf_blight_(Isariopsis_Leaf_Spot)', 'Grape___healthy',
+#     'Orange___Haunglongbing_(Citrus_greening)', 'Peach___Bacterial_spot', 'Peach___healthy',
+#     'Pepper,_bell___Bacterial_spot', 'Pepper,_bell___healthy', 'Potato___Early_blight',
+#     'Potato___Late_blight', 'Potato___healthy', 'Raspberry___healthy', 'Soybean___healthy',
+#     'Squash___Powdery_mildew', 'Strawberry___Leaf_scorch', 'Strawberry___healthy',
+#     'Tomato___Bacterial_spot', 'Tomato___Early_blight', 'Tomato___Late_blight', 'Tomato___Leaf_Mold',
+#     'Tomato___Septoria_leaf_spot', 'Tomato___Spider_mites Two-spotted_spider_mite', 'Tomato___Target_Spot',
+#     'Tomato___Tomato_Yellow_Leaf_Curl_Virus', 'Tomato___Tomato_mosaic_virus', 'Tomato___healthy'
+# ]
 
-# --- Load the trained MobileNet model ---
-model = models.mobilenet_v2(num_classes=len(classes))
-model.load_state_dict(torch.load("saved_models/leaf_mobilenet.pth", map_location=device))
-model.to(device)
-model.eval()
+# # --- Load the trained MobileNet model ---
+# model = models.mobilenet_v2(num_classes=len(classes))
+# model.load_state_dict(torch.load("saved_models/leaf_mobilenet.pth", map_location=device))
+# model.to(device)
+# model.eval()
 
-# --- Image preprocessing ---
-transform = transforms.Compose([
-    transforms.Resize((224, 224)),
-    transforms.ToTensor(),
-    transforms.Normalize([0.485, 0.456, 0.406],
-                         [0.229, 0.224, 0.225])
-])
+# # --- Image preprocessing ---
+# transform = transforms.Compose([
+#     transforms.Resize((224, 224)),
+#     transforms.ToTensor(),
+#     transforms.Normalize([0.485, 0.456, 0.406],
+#                          [0.229, 0.224, 0.225])
+# ])
 
-# --- Prediction function ---
-def predict_image(image_bytes):
-    image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-    image = transform(image).unsqueeze(0).to(device)  # Add batch dimension
-    with torch.no_grad():
-        outputs = model(image)
-        _, predicted = torch.max(outputs, 1)
-    return classes[predicted.item()]
+# # --- Prediction function ---
+# def predict_image(image_bytes):
+#     image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+#     image = transform(image).unsqueeze(0).to(device)  # Add batch dimension
+#     with torch.no_grad():
+#         outputs = model(image)
+#         _, predicted = torch.max(outputs, 1)
+#     return classes[predicted.item()]
 
-# --- Gemini API call ---
-GEMINI_API_KEY = "AIzaSyDGVCQeKgReVYRuuY28eX-JfFuIlkdpzKk"  # Replace with your real key
+# # --- Gemini API call ---
+# GEMINI_API_KEY = "AIzaSyDGVCQeKgReVYRuuY28eX-JfFuIlkdpzKk"  # Replace with your real key
 
-def get_gemini_insights(disease_name: str) -> str:
-    url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
-    headers = {
-        "Content-Type": "application/json",
-        "X-goog-api-key": GEMINI_API_KEY
-    }
-    payload = {
-        "contents": [
-            {
-                "parts": [
-                    {"text": f"Provide treatment and care tips for the following leaf disease: {disease_name}"}
-                ]
-            }
-        ]
-    }
+# def get_gemini_insights(disease_name: str) -> str:
+#     url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
+#     headers = {
+#         "Content-Type": "application/json",
+#         "X-goog-api-key": GEMINI_API_KEY
+#     }
+#     payload = {
+#         "contents": [
+#             {
+#                 "parts": [
+#                     {"text": f"Provide treatment and care tips for the following leaf disease: {disease_name}"}
+#                 ]
+#             }
+#         ]
+#     }
 
-    try:
-        response = requests.post(url, headers=headers, json=payload)
-        response.raise_for_status()
-        data = response.json()
-    except requests.exceptions.RequestException as e:
-        return f"Gemini API request failed: {e}"
+#     try:
+#         response = requests.post(url, headers=headers, json=payload)
+#         response.raise_for_status()
+#         data = response.json()
+#     except requests.exceptions.RequestException as e:
+#         return f"Gemini API request failed: {e}"
 
-    try:
-        insights_text = data['candidates'][0]['content']['parts'][0]['text']
-        return insights_text
-    except (KeyError, IndexError):
-        return "No insights generated from Gemini API."
+#     try:
+#         insights_text = data['candidates'][0]['content']['parts'][0]['text']
+#         return insights_text
+#     except (KeyError, IndexError):
+#         return "No insights generated from Gemini API."
 
-# --- API route: Upload & Predict ---
-@app.post("/predict/")
-async def predict(file: UploadFile = File(...)):
-    contents = await file.read()
-    disease = predict_image(contents)
-    insights = get_gemini_insights(disease)
-    return {"disease": disease, "insights": insights}
+# # --- API route: Upload & Predict ---
+# @app.post("/predict/")
+# async def predict(file: UploadFile = File(...)):
+#     contents = await file.read()
+#     disease = predict_image(contents)
+#     insights = get_gemini_insights(disease)
+#     return {"disease": disease, "insights": insights}
 
-# --- API route: Capture from Raspberry Pi Camera ---
-@app.get("/capture/")
-def capture_image():
-    save_path = "static/captured.jpg"
-    os.makedirs("static", exist_ok=True)
+# # --- API route: Capture from Raspberry Pi Camera ---
+# @app.get("/capture/")
+# def capture_image():
+#     save_path = "static/captured.jpg"
+#     os.makedirs("static", exist_ok=True)
 
-    picam.start()
-    frame = picam.capture_array()
-    Image.fromarray(frame).save(save_path)
-    picam.stop()
+#     picam.start()
+#     frame = picam.capture_array()
+#     Image.fromarray(frame).save(save_path)
+#     picam.stop()
 
-    # Run prediction
-    with open(save_path, "rb") as f:
-        contents = f.read()
-    disease = predict_image(contents)
-    insights = get_gemini_insights(disease)
+#     # Run prediction
+#     with open(save_path, "rb") as f:
+#         contents = f.read()
+#     disease = predict_image(contents)
+#     insights = get_gemini_insights(disease)
 
-    return {
-        "disease": disease,
-        "insights": insights,
-        "image_url": f"/{save_path}"
-    }
+#     return {
+#         "disease": disease,
+#         "insights": insights,
+#         "image_url": f"/{save_path}"
+#     }
 
-# --- Root route ---
-@app.get("/")
-def root():
-    return {"message": "Leaf Disease Detection API is running with Gemini AI!"}
+# # --- Root route ---
+# @app.get("/")
+# def root():
+#     return {"message": "Leaf Disease Detection API is running with Gemini AI!"}
