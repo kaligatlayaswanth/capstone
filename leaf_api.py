@@ -74,8 +74,8 @@ def predict_image(image_bytes):
 # --- Gemini API ---
 
 # --- OpenRouter API ---
-OPENROUTER_API_KEY = "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"  # <-- Replace with your actual OpenRouter API key
-OPENROUTER_MODEL = "x-ai/grok-4-fast:free"  # You can change to another supported model if desired
+OPENROUTER_API_KEY = "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"  # <-- Replace with your actual OpenRouter API key
+OPENROUTER_MODEL = "deepseek/deepseek-chat-v3.1:free"  # You can change to another supported model if desired
 
 
 def get_openrouter_insights(disease_name: str) -> str:
