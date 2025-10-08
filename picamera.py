@@ -6,7 +6,7 @@ import io
 import requests
 
 # Your backend API URL
-BACKEND_URL = "http://<YOUR_PC_LAN_IP>:8000/predict/"  # <-- Replace with your PC's IP
+BACKEND_URL = "http://10.190.160.115:8000/predict/"  # <-- Replace with your PC's IP
 
 app = FastAPI()
 
