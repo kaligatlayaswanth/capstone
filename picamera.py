@@ -1,20 +1,16 @@
 from picamera2 import Picamera2
+from PIL import Image
 
-# Initialize the camera
 picam2 = Picamera2()
-
-# Start the camera
 picam2.start()
 
-# Capture an image as a numpy array
+# Capture the image as a NumPy array
 image = picam2.capture_array()
 
-# Save to a file without using OpenCV
-from PIL import Image
-img = Image.fromarray(image)
+# Convert RGBA/other mode to RGB before saving as JPEG
+img = Image.fromarray(image).convert("RGB")
 img.save("test.jpg")
 
 print("Image saved as test.jpg")
 
-# Stop the camera
 picam2.stop()
