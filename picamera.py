@@ -6,6 +6,8 @@ from PIL import Image
 import io
 import requests
 import uvicorn
+from threading import Lock
+import time
 
 # Your backend API URL (replace with your PC's LAN IP)
 BACKEND_URL = "http://10.190.160.115:8000/predict/"
@@ -20,19 +22,27 @@ app.add_middleware(
     allow_headers=["*"]
 )
 
-def capture_image():
-    picam2 = Picamera2()
-    config = picam2.create_preview_configuration(main={"size": (640, 480)})
-    picam2.configure(config)
-    picam2.start()
-    image_array = picam2.capture_array()
-    picam2.stop()
+# Lock to prevent concurrent camera access
+camera_lock = Lock()
 
-    image = Image.fromarray(image_array)
-    buf = io.BytesIO()
-    image.save(buf, format="JPEG")
-    buf.seek(0)
-    return buf
+def capture_image():
+    with camera_lock:
+        picam2 = Picamera2()
+        config = picam2.create_preview_configuration(main={"size": (640, 480)})
+        picam2.configure(config)
+        picam2.start()
+        try:
+            time.sleep(0.5)  # small warm-up for the camera
+            image_array = picam2.capture_array()
+        finally:
+            picam2.stop()
+            picam2.close()  # properly release the camera
+
+        image = Image.fromarray(image_array)
+        buf = io.BytesIO()
+        image.save(buf, format="JPEG")
+        buf.seek(0)
+        return buf
 
 def send_to_backend(image_bytes):
     files = {"file": ("leaf.jpg", image_bytes, "image/jpeg")}
