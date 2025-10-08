@@ -7,6 +7,7 @@ from PIL import Image
 import io
 import requests
 import uvicorn
+import time
 
 # PC backend URL (replace with your PC LAN IP)
 PC_BACKEND_URL = "http://10.190.160.115:8000/predict/"
@@ -23,27 +24,35 @@ app.add_middleware(
     allow_headers=["*"]
 )
 
+
+
+
 camera_lock = Lock()
+picam2 = Picamera2()  # create once
+picam2_configured = False
 
 def capture_image():
-    from time import sleep
-    from PIL import Image
-    import io
+    global picam2_configured
+    with camera_lock:
+        try:
+            if not picam2_configured:
+                config = picam2.create_preview_configuration(main={"format": "RGB888", "size": (640, 480)})
+                picam2.configure(config)
+                picam2.start()
+                time.sleep(0.5)  # Give time to initialize
+                picam2_configured = True
 
-    with camera_lock:  # Ensure only one capture at a time
-        picam2 = Picamera2()
-        config = picam2.create_preview_configuration(main={"format": "RGB888", "size": (640, 480)})
-        picam2.configure(config)
-        picam2.start()
-        sleep(0.5)  # Give time for camera to initialize
-        image_array = picam2.capture_array()
-        picam2.stop()
+            image_array = picam2.capture_array()
 
-        image = Image.fromarray(image_array)
-        buf = io.BytesIO()
-        image.save(buf, format="JPEG")
-        buf.seek(0)
-        return buf
+            image = Image.fromarray(image_array)
+            buf = io.BytesIO()
+            image.save(buf, format="JPEG")
+            buf.seek(0)
+            return buf
+        except Exception as e:
+            print("Capture failed:", e)
+            raise
+
 
 
 
