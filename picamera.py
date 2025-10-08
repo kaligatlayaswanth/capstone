@@ -2,6 +2,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from picamera2 import Picamera2
+from threading import Lock
 from PIL import Image
 import io
 import requests
@@ -12,6 +13,8 @@ PC_BACKEND_URL = "http://10.190.160.115:8000/predict/"
 
 app = FastAPI()
 
+
+
 # Enable CORS so mobile frontend can access Pi API
 app.add_middleware(
     CORSMiddleware,
@@ -20,27 +23,28 @@ app.add_middleware(
     allow_headers=["*"]
 )
 
+camera_lock = Lock()
+
 def capture_image():
-    try:
+    from time import sleep
+    from PIL import Image
+    import io
+
+    with camera_lock:  # Ensure only one capture at a time
         picam2 = Picamera2()
-        config = picam2.create_preview_configuration(main={"size": (640, 480)})
+        config = picam2.create_preview_configuration(main={"format": "RGB888", "size": (640, 480)})
         picam2.configure(config)
         picam2.start()
+        sleep(0.5)  # Give time for camera to initialize
         image_array = picam2.capture_array()
         picam2.stop()
 
-        # Convert to RGB before saving as JPEG
         image = Image.fromarray(image_array)
-        if image.mode != "RGB":
-            image = image.convert("RGB")
-
         buf = io.BytesIO()
         image.save(buf, format="JPEG")
         buf.seek(0)
         return buf
-    except Exception as e:
-        print(f"[Camera Error] {e}")
-        raise e
+
 
 
 def send_to_pc_backend(image_bytes):
