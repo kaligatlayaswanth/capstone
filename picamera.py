@@ -6,15 +6,13 @@ from PIL import Image
 import io
 import requests
 import uvicorn
-from threading import Lock
-import time
 
-# Your backend API URL (replace with your PC's LAN IP)
-BACKEND_URL = "http://10.190.160.115:8000/predict/"
+# PC backend URL (replace with your PC LAN IP)
+PC_BACKEND_URL = "http://10.190.160.115:8000/predict/"
 
 app = FastAPI()
 
-# Allow frontend access
+# Enable CORS so mobile frontend can access Pi API
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -22,46 +20,46 @@ app.add_middleware(
     allow_headers=["*"]
 )
 
-# Lock to prevent concurrent camera access
-camera_lock = Lock()
-
 def capture_image():
-    with camera_lock:
-        picam2 = Picamera2()
-        config = picam2.create_preview_configuration(main={"size": (640, 480)})
-        picam2.configure(config)
-        picam2.start()
-        try:
-            time.sleep(0.5)  # small warm-up for the camera
-            image_array = picam2.capture_array()
-        finally:
-            picam2.stop()
-            picam2.close()  # properly release the camera
+    picam2 = Picamera2()
+    config = picam2.create_preview_configuration(main={"size": (640, 480)})
+    picam2.configure(config)
+    picam2.start()
+    image_array = picam2.capture_array()
+    picam2.stop()
 
-        image = Image.fromarray(image_array)
-        buf = io.BytesIO()
-        image.save(buf, format="JPEG")
-        buf.seek(0)
-        return buf
+    image = Image.fromarray(image_array)
+    buf = io.BytesIO()
+    image.save(buf, format="JPEG")
+    buf.seek(0)
+    return buf
 
-def send_to_backend(image_bytes):
+def send_to_pc_backend(image_bytes):
     files = {"file": ("leaf.jpg", image_bytes, "image/jpeg")}
-    response = requests.post(BACKEND_URL, files=files)
-    return response.json()
+    try:
+        response = requests.post(PC_BACKEND_URL, files=files, timeout=15)
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        return {"error": f"PC backend request failed: {e}"}
 
 @app.get("/capture/")
 def capture():
     """
-    Capture image from Pi camera and forward to backend for prediction.
-    Returns backend response (disease + insights).
+    Capture image from Pi camera and forward to PC backend for prediction.
+    Returns disease + insights.
     """
     try:
         img_bytes = capture_image()
-        result = send_to_backend(img_bytes)
+        result = send_to_pc_backend(img_bytes)
+        # Include a preview image URL (optional, if you serve images from Pi)
+        # For simplicity, we convert to base64 string for frontend
+        import base64
+        image_base64 = base64.b64encode(img_bytes.getvalue()).decode("utf-8")
+        result["image_base64"] = f"data:image/jpeg;base64,{image_base64}"
         return {"status": "success", "result": result}
     except Exception as e:
         return {"status": "error", "error": str(e)}
 
 if __name__ == "__main__":
-    # Start FastAPI server when script runs
     uvicorn.run(app, host="0.0.0.0", port=5000)
