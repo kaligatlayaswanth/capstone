@@ -74,8 +74,8 @@ def predict_image(image_bytes):
 # --- Gemini API ---
 
 # --- OpenRouter API ---
-OPENROUTER_API_KEY = "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"  # <-- Replace with your actual OpenRouter API key
-OPENROUTER_MODEL = "deepseek/deepseek-chat-v3.1:free"  # You can change to another supported model if desired
+OPENROUTER_API_KEY = "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"  # <-- Replace with your actual OpenRouter API key
+OPENROUTER_MODEL = "deepseek/deepseek-r1-0528:free"  # You can change to another supported model if desired
 
 
 def get_openrouter_insights(disease_name: str) -> str:
@@ -122,7 +122,8 @@ async def predict(file: UploadFile = File(...)):
         insights = get_openrouter_insights(disease)
         return {"disease": disease, "insights": insights}
     except Exception as e:
-        return {"error": str(e)}
+        # Always return status key for uniform frontend handling
+        return {"error": str(e), "status": "error"}
 
 @app.get("/")
 def root():

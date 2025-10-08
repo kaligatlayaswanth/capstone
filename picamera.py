@@ -21,18 +21,27 @@ app.add_middleware(
 )
 
 def capture_image():
-    picam2 = Picamera2()
-    config = picam2.create_preview_configuration(main={"size": (640, 480)})
-    picam2.configure(config)
-    picam2.start()
-    image_array = picam2.capture_array()
-    picam2.stop()
+    try:
+        picam2 = Picamera2()
+        config = picam2.create_preview_configuration(main={"size": (640, 480)})
+        picam2.configure(config)
+        picam2.start()
+        image_array = picam2.capture_array()
+        picam2.stop()
 
-    image = Image.fromarray(image_array)
-    buf = io.BytesIO()
-    image.save(buf, format="JPEG")
-    buf.seek(0)
-    return buf
+        # Convert to RGB before saving as JPEG
+        image = Image.fromarray(image_array)
+        if image.mode != "RGB":
+            image = image.convert("RGB")
+
+        buf = io.BytesIO()
+        image.save(buf, format="JPEG")
+        buf.seek(0)
+        return buf
+    except Exception as e:
+        print(f"[Camera Error] {e}")
+        raise e
+
 
 def send_to_pc_backend(image_bytes):
     files = {"file": ("leaf.jpg", image_bytes, "image/jpeg")}
