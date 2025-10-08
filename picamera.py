@@ -1,12 +1,14 @@
+# pi_capture.py
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from picamera2 import Picamera2
 from PIL import Image
 import io
 import requests
+import uvicorn
 
-# Your backend API URL
-BACKEND_URL = "http://10.190.160.115:8000/predict/"  # <-- Replace with your PC's IP
+# Your backend API URL (replace with your PC's LAN IP)
+BACKEND_URL = "http://10.190.160.115:8000/predict/"
 
 app = FastAPI()
 
@@ -49,3 +51,7 @@ def capture():
         return {"status": "success", "result": result}
     except Exception as e:
         return {"status": "error", "error": str(e)}
+
+if __name__ == "__main__":
+    # Start FastAPI server when script runs
+    uvicorn.run(app, host="0.0.0.0", port=5000)
